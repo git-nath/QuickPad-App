@@ -300,9 +300,9 @@ private fun VideoPlayerScreen(
     ) { innerPadding ->
         AndroidView(
             modifier = Modifier
-                .fillMaxWidth()
+                .fillMaxSize()
                 .padding(innerPadding)
-                .aspectRatio(16f / 9f),
+                .background(androidx.compose.ui.graphics.Color.Black),
             factory = {
                 VideoView(it).apply {
                     val mediaController = MediaController(it)

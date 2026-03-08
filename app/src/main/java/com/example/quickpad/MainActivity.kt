@@ -1,8 +1,8 @@
 package com.example.quickpad
 
+import android.content.Intent
 import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
-import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.widget.MediaController
@@ -13,12 +13,14 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -32,6 +34,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -48,6 +51,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.produceState
@@ -56,6 +60,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.asImageBitmap
@@ -78,6 +84,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+private const val ALL_FOLDERS = "All"
+private const val DEFAULT_FOLDER = "General"
+
 class MainActivity : ComponentActivity() {
     private val viewModel: VideoViewModel by viewModels {
         VideoViewModelFactory(
@@ -98,7 +107,8 @@ class MainActivity : ComponentActivity() {
                 AppNavigation(
                     navController = navController,
                     videos = videos,
-                    onSaveVideo = viewModel::addVideo
+                    onSaveVideo = viewModel::addVideo,
+                    onUpdateVideo = viewModel::updateVideo
                 )
             }
         }
@@ -109,7 +119,8 @@ class MainActivity : ComponentActivity() {
 private fun AppNavigation(
     navController: NavHostController,
     videos: List<VideoEntity>,
-    onSaveVideo: (String, String, () -> Unit) -> Unit
+    onSaveVideo: (String, String, String, () -> Unit) -> Unit,
+    onUpdateVideo: (Long, String, String, () -> Unit) -> Unit
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -124,14 +135,19 @@ private fun AppNavigation(
                 HomeScreen(
                     videos = videos,
                     onAddClick = { navController.navigate("add") },
-                    onVideoClick = { videoId -> navController.navigate("player/$videoId") }
+                    onVideoClick = { videoId -> navController.navigate("player/$videoId") },
+                    onSaveEdit = { id, caption, folder ->
+                        onUpdateVideo(id, caption, folder) {
+                            scope.launch { snackbarHostState.showSnackbar("Video updated") }
+                        }
+                    }
                 )
             }
             composable("add") {
                 AddVideoScreen(
                     onBack = { navController.popBackStack() },
-                    onSave = { uri, caption ->
-                        onSaveVideo(uri, caption) {
+                    onSave = { uri, caption, folder ->
+                        onSaveVideo(uri, caption, folder) {
                             navController.popBackStack()
                         }
                     },
@@ -147,18 +163,14 @@ private fun AppNavigation(
                 val video = videos.firstOrNull { it.id == videoId }
 
                 if (video == null) {
-                    scope.launch {
-                        snackbarHostState.showSnackbar("Video not found")
-                    }
+                    scope.launch { snackbarHostState.showSnackbar("Video not found") }
                     navController.popBackStack()
                 } else {
                     VideoPlayerScreen(
                         video = video,
                         onBack = { navController.popBackStack() },
                         onPlayFailed = {
-                            scope.launch {
-                                snackbarHostState.showSnackbar("Unable to play this video")
-                            }
+                            scope.launch { snackbarHostState.showSnackbar("Unable to play this video") }
                         }
                     )
                 }
@@ -172,10 +184,52 @@ private fun AppNavigation(
 private fun HomeScreen(
     videos: List<VideoEntity>,
     onAddClick: () -> Unit,
-    onVideoClick: (Long) -> Unit
+    onVideoClick: (Long) -> Unit,
+    onSaveEdit: (Long, String, String) -> Unit
 ) {
+    var showFolderDialog by rememberSaveable { mutableStateOf(false) }
+    var selectedFolder by rememberSaveable { mutableStateOf(ALL_FOLDERS) }
+    var editingVideo by remember { mutableStateOf<VideoEntity?>(null) }
+
+    val knownFolders = remember(videos) {
+        (videos.map { it.folder }.filter { it.isNotBlank() } + DEFAULT_FOLDER).distinct().sorted()
+    }
+    val filteredVideos = remember(videos, selectedFolder) {
+        if (selectedFolder == ALL_FOLDERS) videos else videos.filter { it.folder == selectedFolder }
+    }
+
+    if (showFolderDialog) {
+        FolderManagerDialog(
+            folders = knownFolders,
+            selectedFolder = selectedFolder,
+            onSelectFolder = { selectedFolder = it },
+            onDismiss = { showFolderDialog = false }
+        )
+    }
+
+    editingVideo?.let { video ->
+        EditVideoDialog(
+            video = video,
+            knownFolders = knownFolders,
+            onDismiss = { editingVideo = null },
+            onSave = { caption, folder ->
+                onSaveEdit(video.id, caption, folder)
+                editingVideo = null
+            }
+        )
+    }
+
     Scaffold(
-        topBar = { TopAppBar(title = { Text("QuickPad") }) },
+        topBar = {
+            TopAppBar(
+                title = { Text("QuickPad (${filteredVideos.size})") },
+                actions = {
+                    TextButton(onClick = { showFolderDialog = true }) {
+                        Text(selectedFolder)
+                    }
+                }
+            )
+        },
         floatingActionButton = {
             FloatingActionButton(onClick = onAddClick) {
                 Icon(imageVector = Icons.Default.Add, contentDescription = "Add video")
@@ -189,15 +243,23 @@ private fun HomeScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            items(videos, key = { it.id }) { video ->
-                VideoItem(video = video, onVideoClick = onVideoClick)
+            items(filteredVideos, key = { it.id }) { video ->
+                VideoItem(
+                    video = video,
+                    onVideoClick = onVideoClick,
+                    onEditClick = { editingVideo = video }
+                )
             }
         }
     }
 }
 
 @Composable
-private fun VideoItem(video: VideoEntity, onVideoClick: (Long) -> Unit) {
+private fun VideoItem(
+    video: VideoEntity,
+    onVideoClick: (Long) -> Unit,
+    onEditClick: () -> Unit
+) {
     val videoUri = remember(video.uri) { video.uri.toUri() }
 
     Card(
@@ -220,6 +282,18 @@ private fun VideoItem(video: VideoEntity, onVideoClick: (Long) -> Unit) {
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Folder: ${video.folder}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                TextButton(onClick = onEditClick) { Text("Edit") }
+            }
         }
     }
 }
@@ -233,7 +307,7 @@ private fun VideoThumbnail(uri: Uri, description: String, modifier: Modifier = M
 
     Box(modifier = modifier.background(MaterialTheme.colorScheme.surfaceVariant)) {
         if (thumbnail.value != null) {
-            androidx.compose.foundation.Image(
+            Image(
                 bitmap = thumbnail.value!!.asImageBitmap(),
                 contentDescription = description,
                 modifier = Modifier.fillMaxSize(),
@@ -302,7 +376,7 @@ private fun VideoPlayerScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .background(androidx.compose.ui.graphics.Color.Black),
+                .background(Color.Black),
             factory = {
                 VideoView(it).apply {
                     val mediaController = MediaController(it)
@@ -324,11 +398,12 @@ private fun VideoPlayerScreen(
 @Composable
 private fun AddVideoScreen(
     onBack: () -> Unit,
-    onSave: (String, String) -> Unit,
+    onSave: (String, String, String) -> Unit,
     onInvalid: () -> Unit
 ) {
     val context = LocalContext.current
     var caption by rememberSaveable { mutableStateOf("") }
+    var folder by rememberSaveable { mutableStateOf(DEFAULT_FOLDER) }
     var selectedUri by rememberSaveable { mutableStateOf<String?>(null) }
 
     val pickerLauncher = rememberLauncherForActivityResult(
@@ -381,13 +456,22 @@ private fun AddVideoScreen(
                 maxLines = 3
             )
 
+            OutlinedTextField(
+                value = folder,
+                onValueChange = { folder = it },
+                label = { Text("Folder") },
+                placeholder = { Text("e.g. Memes") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
+
             TextButton(
                 onClick = {
                     val uri = selectedUri
                     if (uri.isNullOrBlank() || caption.isBlank()) {
                         onInvalid()
                     } else {
-                        onSave(uri, caption.trim())
+                        onSave(uri, caption.trim(), folder.trim().ifBlank { DEFAULT_FOLDER })
                     }
                 },
                 modifier = Modifier.fillMaxWidth()
@@ -396,4 +480,88 @@ private fun AddVideoScreen(
             }
         }
     }
+}
+
+@Composable
+private fun FolderManagerDialog(
+    folders: List<String>,
+    selectedFolder: String,
+    onSelectFolder: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Folder management") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = {
+                    onSelectFolder(ALL_FOLDERS)
+                    onDismiss()
+                }) {
+                    Text(if (selectedFolder == ALL_FOLDERS) "✓ All" else "All")
+                }
+                folders.forEach { folder ->
+                    TextButton(onClick = {
+                        onSelectFolder(folder)
+                        onDismiss()
+                    }) {
+                        val label = if (selectedFolder == folder) "✓ $folder" else folder
+                        Text(label)
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } }
+    )
+}
+
+@Composable
+private fun EditVideoDialog(
+    video: VideoEntity,
+    knownFolders: List<String>,
+    onDismiss: () -> Unit,
+    onSave: (String, String) -> Unit
+) {
+    var caption by remember(video.id) { mutableStateOf(video.caption) }
+    var folder by remember(video.id) { mutableStateOf(video.folder) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edit video") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = caption,
+                    onValueChange = { caption = it },
+                    label = { Text("Caption") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = folder,
+                    onValueChange = { folder = it },
+                    label = { Text("Folder") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+                if (knownFolders.isNotEmpty()) {
+                    Text(
+                        text = "Existing folders: ${knownFolders.joinToString()}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val cleanCaption = caption.trim()
+                if (cleanCaption.isNotEmpty()) {
+                    onSave(cleanCaption, folder.trim().ifBlank { DEFAULT_FOLDER })
+                }
+            }) {
+                Text("Save")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
 }

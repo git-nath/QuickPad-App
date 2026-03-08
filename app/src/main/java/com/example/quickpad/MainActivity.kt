@@ -243,7 +243,6 @@ private fun VideoThumbnail(uri: Uri, description: String, modifier: Modifier = M
             AsyncImage(
                 model = ImageRequest.Builder(context)
                     .data(uri)
-                    .videoFrameMillis(1_000)
                     .crossfade(true)
                     .build(),
                 contentDescription = description,

@@ -17,9 +17,16 @@ class VideoViewModel(private val repository: VideoRepository) : ViewModel() {
         initialValue = emptyList()
     )
 
-    fun addVideo(uri: String, caption: String, onDone: () -> Unit) {
+    fun addVideo(uri: String, caption: String, folder: String, onDone: () -> Unit) {
         viewModelScope.launch {
-            repository.saveVideo(uri = uri, caption = caption)
+            repository.saveVideo(uri = uri, caption = caption, folder = folder)
+            onDone()
+        }
+    }
+
+    fun updateVideo(id: Long, caption: String, folder: String, onDone: () -> Unit) {
+        viewModelScope.launch {
+            repository.updateVideo(id = id, caption = caption, folder = folder)
             onDone()
         }
     }

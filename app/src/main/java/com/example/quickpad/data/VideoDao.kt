@@ -13,4 +13,7 @@ interface VideoDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertVideo(video: VideoEntity)
+
+    @Query("UPDATE videos SET caption = :caption, folder = :folder WHERE id = :id")
+    suspend fun updateVideoDetails(id: Long, caption: String, folder: String)
 }

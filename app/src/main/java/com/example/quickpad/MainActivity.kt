@@ -372,25 +372,42 @@ private fun VideoPlayerScreen(
             )
         }
     ) { innerPadding ->
-        AndroidView(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .background(Color.Black),
-            factory = {
-                VideoView(it).apply {
-                    val mediaController = MediaController(it)
-                    mediaController.setAnchorView(this)
-                    setMediaController(mediaController)
-                    setVideoURI(videoUri)
-                    setOnPreparedListener { start() }
-                    setOnErrorListener { _, _, _ ->
-                        onPlayFailed()
-                        true
+                .background(Color.Black)
+        ) {
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = {
+                    VideoView(it).apply {
+                        val mediaController = MediaController(it)
+                        mediaController.setAnchorView(this)
+                        setMediaController(mediaController)
+                        setVideoURI(videoUri)
+                        setOnPreparedListener { start() }
+                        setOnErrorListener { _, _, _ ->
+                            onPlayFailed()
+                            true
+                        }
                     }
                 }
-            }
-        )
+            )
+
+            Text(
+                text = video.caption,
+                style = MaterialTheme.typography.titleMedium,
+                color = Color.White,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .fillMaxWidth()
+                    .background(Color.Black.copy(alpha = 0.45f))
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
 }
 

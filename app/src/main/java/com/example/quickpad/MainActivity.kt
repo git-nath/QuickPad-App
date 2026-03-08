@@ -31,11 +31,14 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -64,7 +67,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -222,16 +225,29 @@ private fun HomeScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("QuickPad (${filteredVideos.size})") },
+                title = {
+                    Column {
+                        Text("QuickPad", fontWeight = FontWeight.Bold)
+                        Text(
+                            "${filteredVideos.size} videos",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                },
                 actions = {
                     TextButton(onClick = { showFolderDialog = true }) {
-                        Text(selectedFolder)
+                        Text(selectedFolder, color = MaterialTheme.colorScheme.primary)
                     }
                 }
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = onAddClick) {
+            FloatingActionButton(
+                onClick = onAddClick,
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
+            ) {
                 Icon(imageVector = Icons.Default.Add, contentDescription = "Add video")
             }
         }
@@ -239,6 +255,7 @@ private fun HomeScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
                 .padding(innerPadding),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -265,7 +282,9 @@ private fun VideoItem(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onVideoClick(video.id) }
+            .clickable { onVideoClick(video.id) },
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
             VideoThumbnail(
@@ -446,54 +465,67 @@ private fun AddVideoScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
                 .padding(innerPadding)
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            OutlinedButton(onClick = { pickerLauncher.launch(arrayOf("video/*")) }) {
-                Text(if (selectedUri == null) "Pick video" else "Change video")
-            }
-
-            selectedUri?.toUri()?.let {
-                VideoThumbnail(
-                    uri = it,
-                    description = "Selected video preview",
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(220.dp)
-                )
-            }
-
-            OutlinedTextField(
-                value = caption,
-                onValueChange = { caption = it },
-                label = { Text("Caption") },
-                placeholder = { Text("Add a short note") },
-                modifier = Modifier.fillMaxWidth(),
-                maxLines = 3
-            )
-
-            OutlinedTextField(
-                value = folder,
-                onValueChange = { folder = it },
-                label = { Text("Folder") },
-                placeholder = { Text("e.g. Memes") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true
-            )
-
-            TextButton(
-                onClick = {
-                    val uri = selectedUri
-                    if (uri.isNullOrBlank() || caption.isBlank()) {
-                        onInvalid()
-                    } else {
-                        onSave(uri, caption.trim(), folder.trim().ifBlank { DEFAULT_FOLDER })
-                    }
-                },
+            Card(
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Save")
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    OutlinedButton(onClick = { pickerLauncher.launch(arrayOf("video/*")) }) {
+                        Text(if (selectedUri == null) "Pick video" else "Change video")
+                    }
+
+                    selectedUri?.toUri()?.let {
+                        VideoThumbnail(
+                            uri = it,
+                            description = "Selected video preview",
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(220.dp)
+                        )
+                    }
+
+                    OutlinedTextField(
+                        value = caption,
+                        onValueChange = { caption = it },
+                        label = { Text("Caption") },
+                        placeholder = { Text("Add a short note") },
+                        modifier = Modifier.fillMaxWidth(),
+                        maxLines = 3
+                    )
+
+                    OutlinedTextField(
+                        value = folder,
+                        onValueChange = { folder = it },
+                        label = { Text("Folder") },
+                        placeholder = { Text("e.g. Memes") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+
+                    Button(
+                        onClick = {
+                            val uri = selectedUri
+                            if (uri.isNullOrBlank() || caption.isBlank()) {
+                                onInvalid()
+                            } else {
+                                onSave(uri, caption.trim(), folder.trim().ifBlank { DEFAULT_FOLDER })
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Save")
+                    }
+                }
             }
         }
     }

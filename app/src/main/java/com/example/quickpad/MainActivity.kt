@@ -1,9 +1,12 @@
 package com.example.quickpad
 
-import android.content.ActivityNotFoundException
+import android.graphics.Bitmap
+import android.media.MediaMetadataRetriever
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.widget.MediaController
+import android.widget.VideoView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -46,6 +49,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -53,8 +57,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
@@ -67,7 +73,9 @@ import com.example.quickpad.data.AppDatabase
 import com.example.quickpad.data.VideoEntity
 import com.example.quickpad.data.VideoRepository
 import com.example.quickpad.ui.theme.QuickPadTheme
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     private val viewModel: VideoViewModel by viewModels {
@@ -115,11 +123,7 @@ private fun AppNavigation(
                 HomeScreen(
                     videos = videos,
                     onAddClick = { navController.navigate("add") },
-                    onPlayFailed = {
-                        scope.launch {
-                            snackbarHostState.showSnackbar("No app found to play this video")
-                        }
-                    }
+                    onVideoClick = { videoId -> navController.navigate("player/$videoId") }
                 )
             }
             composable("add") {
@@ -137,6 +141,27 @@ private fun AppNavigation(
                     }
                 )
             }
+            composable("player/{videoId}") { backStackEntry ->
+                val videoId = backStackEntry.arguments?.getString("videoId")?.toLongOrNull()
+                val video = videos.firstOrNull { it.id == videoId }
+
+                if (video == null) {
+                    scope.launch {
+                        snackbarHostState.showSnackbar("Video not found")
+                    }
+                    navController.popBackStack()
+                } else {
+                    VideoPlayerScreen(
+                        video = video,
+                        onBack = { navController.popBackStack() },
+                        onPlayFailed = {
+                            scope.launch {
+                                snackbarHostState.showSnackbar("Unable to play this video")
+                            }
+                        }
+                    )
+                }
+            }
         }
     }
 }
@@ -146,7 +171,7 @@ private fun AppNavigation(
 private fun HomeScreen(
     videos: List<VideoEntity>,
     onAddClick: () -> Unit,
-    onPlayFailed: () -> Unit
+    onVideoClick: (Long) -> Unit
 ) {
     Scaffold(
         topBar = { TopAppBar(title = { Text("QuickPad") }) },
@@ -164,31 +189,20 @@ private fun HomeScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             items(videos, key = { it.id }) { video ->
-                VideoItem(video = video, onPlayFailed = onPlayFailed)
+                VideoItem(video = video, onVideoClick = onVideoClick)
             }
         }
     }
 }
 
 @Composable
-private fun VideoItem(video: VideoEntity, onPlayFailed: () -> Unit) {
-    val context = LocalContext.current
+private fun VideoItem(video: VideoEntity, onVideoClick: (Long) -> Unit) {
     val videoUri = remember(video.uri) { video.uri.toUri() }
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable {
-                try {
-                    val playIntent = Intent(Intent.ACTION_VIEW).apply {
-                        setDataAndType(videoUri, "video/*")
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    }
-                    context.startActivity(playIntent)
-                } catch (_: ActivityNotFoundException) {
-                    onPlayFailed()
-                }
-            }
+            .clickable { onVideoClick(video.id) }
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
             VideoThumbnail(
@@ -212,17 +226,29 @@ private fun VideoItem(video: VideoEntity, onPlayFailed: () -> Unit) {
 @Composable
 private fun VideoThumbnail(uri: Uri, description: String, modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    Box(modifier = modifier) {
-        AsyncImage(
-            model = ImageRequest.Builder(context)
-                .data(uri)
-                .videoFrameMillis(1_000)
-                .crossfade(true)
-                .build(),
-            contentDescription = description,
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop
-        )
+    val thumbnail = produceState<Bitmap?>(initialValue = null, uri) {
+        value = loadVideoThumbnail(context = context, uri = uri)
+    }
+
+    Box(modifier = modifier.background(MaterialTheme.colorScheme.surfaceVariant)) {
+        if (thumbnail.value != null) {
+            androidx.compose.foundation.Image(
+                bitmap = thumbnail.value!!.asImageBitmap(),
+                contentDescription = description,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        } else {
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(uri)
+                    .crossfade(true)
+                    .build(),
+                contentDescription = description,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        }
         Box(
             modifier = Modifier
                 .align(Alignment.Center)
@@ -237,6 +263,59 @@ private fun VideoThumbnail(uri: Uri, description: String, modifier: Modifier = M
                 tint = MaterialTheme.colorScheme.onSurface
             )
         }
+    }
+}
+
+private suspend fun loadVideoThumbnail(context: android.content.Context, uri: Uri): Bitmap? {
+    return withContext(Dispatchers.IO) {
+        try {
+            val retriever = MediaMetadataRetriever()
+            retriever.setDataSource(context, uri)
+            val frame = retriever.getFrameAtTime(1_000_000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+            retriever.release()
+            frame
+        } catch (_: Exception) {
+            null
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun VideoPlayerScreen(
+    video: VideoEntity,
+    onBack: () -> Unit,
+    onPlayFailed: () -> Unit
+) {
+    val videoUri = remember(video.uri) { video.uri.toUri() }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(video.caption) },
+                navigationIcon = { TextButton(onClick = onBack) { Text("Back") } }
+            )
+        }
+    ) { innerPadding ->
+        AndroidView(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .background(androidx.compose.ui.graphics.Color.Black),
+            factory = {
+                VideoView(it).apply {
+                    val mediaController = MediaController(it)
+                    mediaController.setAnchorView(this)
+                    setMediaController(mediaController)
+                    setVideoURI(videoUri)
+                    setOnPreparedListener { start() }
+                    setOnErrorListener { _, _, _ ->
+                        onPlayFailed()
+                        true
+                    }
+                }
+            }
+        )
     }
 }
 

@@ -52,6 +52,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -127,6 +128,14 @@ private fun AppNavigation(
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    var hasAutoLaunched by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(videos, hasAutoLaunched) {
+        if (!hasAutoLaunched && videos.isNotEmpty()) {
+            hasAutoLaunched = true
+            navController.navigate("player/${videos.random().id}")
+        }
+    }
 
     Scaffold(snackbarHost = { SnackbarHost(snackbarHostState) }) { innerPadding ->
         NavHost(
@@ -260,6 +269,27 @@ private fun HomeScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            if (filteredVideos.isEmpty()) {
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(20.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(20.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text("No videos yet", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                "Tap + to add your first reel-style video.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
             items(filteredVideos, key = { it.id }) { video ->
                 VideoItem(
                     video = video,
